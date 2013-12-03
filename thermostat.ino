@@ -1,44 +1,51 @@
-/* YourDuino.com Example Software Sketch
- 20 character 4 line I2C Display
- Backpack Interface labelled "YwRobot Arduino LCM1602 IIC V1"
- Connect Vcc and Ground, SDA to A4, SCL to A5 on Arduino
- terry@yourduino.com */
-
-/*-----( Import needed libraries )-----*/
 #include <Wire.h>  // Comes with Arduino IDE
-// Get the LCD I2C Library here: 
-// https://bitbucket.org/fmalpartida/new-liquidcrystal/downloads
-// Move any other LCD libraries to another folder or delete them
-// See Library "Docs" folder for possible commands etc.
+
+//LCD, ETHERNET, DHT11
 #include <LiquidCrystal_I2C.h>
-
 #include "dht11.h"
+#include <EtherCard.h>
 
-
-/*-----( Declare objects )-----*/
 dht11 DHT11;
 
-/*-----( Declare Constants, Pin Numbers )-----*/
-#define DHT11PIN 8
+#define DHT11PIN 9
 
-/*-----( Declare Constants )-----*/
-/*-----( Declare objects )-----*/
 // set the LCD address to 0x27 for a 20 chars 4 line display
 // Set the pins on the I2C chip used for LCD connections:
-//                    addr, en,rw,rs,d4,d5,d6,d7,bl,blpol
+// addr, en,rw,rs,d4,d5,d6,d7,bl,blpol
 LiquidCrystal_I2C lcd(0x27, 2, 1, 0, 4, 5, 6, 7, 3, POSITIVE);  // Set the LCD I2C address
 
+// ethernet interface mac address
+static byte mymac[] = { 0x74,0x69,0x69,0x2D,0x30,0x31 };
+// ethernet interface ip address
+//static byte myip[] = { 10,10,9,69 };
+// gateway ip address
+//static byte gwip[] = { 192,168,1,34 };
+// remote website ip address and port
+//static byte hisip[] = { 192,168,1,34 };
 
-/*-----( Declare Variables )-----*/
+// remote website name
+char website[] PROGMEM = "http://www.robertcasanova.it";
 
+byte Ethernet::buffer[700];
+char line_buf[150];  
 
-void setup()   /*----( SETUP: RUNS ONCE )----*/
+static uint32_t timer;
+
+// called when the client request is complete
+static void my_result_cb (byte status, word off, word len) {
+  Serial.println(">>>");
+  Ethernet::buffer[off+300] = 0;
+  Serial.print((const char*) Ethernet::buffer + off);
+  Serial.println("...");
+}
+
+void setup()  
 {
-  Serial.begin(9600);  // Used to type in characters
-
-  lcd.begin(20,4);         // initialize the lcd for 20 chars 4 lines, turn on backlight
-
-// ------- Quick 3 blinks of backlight  -------------
+  Serial.begin(9600);
+  //initialize the lcd for 20 chars 4 lines, turn on backlight  
+  lcd.begin(20,4);         
+  
+  // ------- Quick 3 blinks of backlight  -------------
   for(int i = 0; i< 3; i++)
   {
     lcd.backlight();
@@ -46,68 +53,64 @@ void setup()   /*----( SETUP: RUNS ONCE )----*/
     lcd.noBacklight();
     delay(250);
   }
-  lcd.backlight(); // finish with backlight on  
-
+  
+  // finish with backlight on  
+  lcd.backlight(); 
+  
+  lcd.setCursor(3,0);
+  lcd.print("Termostato: ON!");
+  delay(1000);
+  lcd.clear();
+  lcd.setCursor(0,0);
   lcd.print("Temperatura");
   lcd.setCursor(0,1);
-  lcd.print("Umidita'");
-  lcd.setCursor(16,0);
+  lcd.print("Umidita'");  
+  
+  //ETHERNET
+  Serial.println("\n[webClient]");
 
-//-------- Write characters on the display ------------------
-  // NOTE: Cursor Position: Lines and Characters start at 0  
-  /*lcd.setCursor(3,0); //Start at character 4 on line 0
-  lcd.print("Hello, world!");
-  delay(1000);
-  lcd.setCursor(2,1);
-  lcd.print("From YourDuino");
-  delay(1000);  
-  lcd.setCursor(0,2);
-  lcd.print("20 by 4 Line Display");
-  lcd.setCursor(0,3);
-  delay(2000);   
-  lcd.print("http://YourDuino.com");
-  delay(8000);
-  // Wait and then tell user they can start the Serial Monitor and type in characters to
-  // Display. (Set Serial Monitor option to "No Line Ending")
-  lcd.setCursor(0,0); //Start at character 0 on line 0
-  lcd.print("Start Serial Monitor");
-  lcd.setCursor(0,1);
-  lcd.print("Type chars 2 display");  */  
-}/*--(end setup )---*/
+  if (ether.begin(sizeof Ethernet::buffer, mymac) == 0) 
+    Serial.println( "Failed to access Ethernet controller");
+  if (!ether.dhcpSetup())
+    Serial.println("DHCP failed");
+
+  ether.printIp("IP:  ", ether.myip);
+  ether.printIp("GW:  ", ether.gwip);  
+  ether.printIp("DNS: ", ether.dnsip);  
+
+  if (!ether.dnsLookup(website))
+    Serial.println("DNS failed");
+    
+  ether.printIp("SRV: ", ether.hisip); 
+}
 
 
-void loop()   /*----( LOOP: RUNS CONSTANTLY )----*/
+void loop()
 {
-  {
-    // when characters arrive over the serial port...
-    /*if (Serial.available()) {
-      // wait a bit for the entire message to arrive
-      delay(100);
-      // clear the screen
-      lcd.clear();
-      // read all the available characters
-      while (Serial.available() > 0) {
-        // display each character to the LCD
-        lcd.write(Serial.read());
-      }
-    }*/
+  //ethernet
+  ether.packetLoop(ether.packetReceive());
+  
+  if (millis() > timer) {
 
     int chk = DHT11.read(DHT11PIN);
 
-    int t = (float) DHT11.temperature;
-    int h = (float) DHT11.humidity;
+    int t = DHT11.temperature;
+    int h = DHT11.humidity;
 
-    // posiziono il cursore alla colonna 12 e riga 0
+    // posiziono il cursore alla colonna 13 e riga 0
     lcd.setCursor(13, 0);
     lcd.print(t);
     lcd.setCursor(13, 1);
     lcd.print(h);
     lcd.print('%');
-
-    delay(2000);
+    
+    timer = millis() + 5000;
+    Serial.println();
+    Serial.print("<<< REQ ");
+    
+    sprintf(line_buf,"?t=%d&h=%d", t, h);  
+    ether.browseUrl(PSTR("/arduino"), line_buf, website, my_result_cb); 
   }
 
-}/* --(end main loop )-- */
-
-
-/* ( THE END ) */
+  //delay(2000);
+}
